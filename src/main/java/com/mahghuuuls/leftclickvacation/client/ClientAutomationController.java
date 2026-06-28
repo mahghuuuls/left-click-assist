@@ -1,9 +1,7 @@
 package com.mahghuuuls.leftclickvacation.client;
 
 import com.mahghuuuls.leftclickvacation.common.AutomationState;
-import com.mahghuuuls.leftclickvacation.common.ConfigValues;
 import com.mahghuuuls.leftclickvacation.common.DisableReason;
-import com.mahghuuuls.leftclickvacation.common.config.ModConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.item.ItemStack;
@@ -15,9 +13,9 @@ import net.minecraftforge.fml.common.network.FMLNetworkEvent;
 public class ClientAutomationController {
 
     private AutomationState state = AutomationState.DISABLED;
+    private boolean modEnabled;
     private ClientActivationBinding activeBinding;
     private Integer activeDimension;
-    private int graceTicksRemaining;
     private HudNotifier hudNotifier;
 
     public void setHudNotifier(HudNotifier hudNotifier) {
@@ -25,48 +23,69 @@ public class ClientAutomationController {
     }
 
     public void onToggleKeyPressed() {
-        if (state != AutomationState.DISABLED) {
-            if (isActivationItemSelected()) {
-                applyLocalState(AutomationState.DISABLED, DisableReason.TOGGLED_OFF, null);
-                return;
-            }
-
-            requestEnableForCurrentSelection(false);
+        if (modEnabled) {
+            disableMod(DisableReason.TOGGLED_OFF);
             return;
         }
 
-        requestEnableForCurrentSelection(true);
+        enableMod();
     }
 
-    private void requestEnableForCurrentSelection(boolean clearActiveBindingOnRejection) {
+    public void onLeftMousePressed() {
+        if (!modEnabled || isTargetingEntity()) {
+            return;
+        }
+
+        if (!isActivationItemSelected()) {
+            return;
+        }
+
+        if (state != AutomationState.DISABLED) {
+            applyLocalState(AutomationState.DISABLED, DisableReason.TOGGLED_OFF, null);
+            return;
+        }
+
+        applyLocalState(AutomationState.ENABLED, DisableReason.NONE, activeBinding);
+    }
+
+    private void enableMod() {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (minecraft.player == null || minecraft.world == null) {
+            return;
+        }
+
         DisableReason localRejection = getLocalEnableRejection();
         if (localRejection != DisableReason.NONE) {
-            if (clearActiveBindingOnRejection) {
-                activeBinding = null;
-            }
-            if (state == AutomationState.PAUSED) {
-                showState(AutomationState.PAUSED, DisableReason.NONE);
-            } else {
-                showState(AutomationState.DISABLED, localRejection);
-            }
+            activeBinding = null;
+            showState(AutomationState.DISABLED, localRejection);
             return;
         }
 
-        int selectedHotbarSlot = getSelectedHotbarSlot();
-        ClientActivationBinding binding = bindCurrentSelection(selectedHotbarSlot);
+        ClientActivationBinding binding = bindCurrentSelection(getSelectedHotbarSlot());
         if (binding == null) {
-            if (clearActiveBindingOnRejection) {
-                activeBinding = null;
-            }
-            if (state == AutomationState.PAUSED) {
-                showState(AutomationState.PAUSED, DisableReason.NONE);
-            } else {
-                showState(AutomationState.DISABLED, DisableReason.HELD_ITEM_REQUIRED);
-            }
+            activeBinding = null;
+            showState(AutomationState.DISABLED, DisableReason.HELD_ITEM_REQUIRED);
             return;
         }
 
-        applyLocalState(AutomationState.ENABLED, DisableReason.NONE, binding);
+        modEnabled = true;
+        activeBinding = binding;
+        activeDimension = getCurrentDimension();
+        if (hudNotifier != null) {
+            hudNotifier.showModEnabled();
+        }
+    }
+
+    private void disableMod(DisableReason reason) {
+        modEnabled = false;
+        if (state != AutomationState.DISABLED) {
+            applyLocalState(AutomationState.DISABLED, reason, null);
+            return;
+        }
+
+        activeBinding = null;
+        activeDimension = null;
+        showState(AutomationState.DISABLED, reason);
     }
 
     private void applyLocalState(AutomationState state, DisableReason reason, ClientActivationBinding binding) {
@@ -74,23 +93,13 @@ public class ClientAutomationController {
         if (state == AutomationState.ENABLED) {
             activeBinding = binding;
             activeDimension = getCurrentDimension();
-            graceTicksRemaining = 0;
-        } else if (state == AutomationState.PAUSED) {
-            graceTicksRemaining = configuredGraceTicks();
         } else {
-            activeBinding = null;
-            activeDimension = null;
-            graceTicksRemaining = 0;
+            if (!modEnabled) {
+                activeBinding = null;
+                activeDimension = null;
+            }
         }
         showState(state, reason);
-    }
-
-    private void resumeLocalState() {
-        state = AutomationState.ENABLED;
-        graceTicksRemaining = 0;
-        if (hudNotifier != null) {
-            hudNotifier.clearPaused();
-        }
     }
 
     private void disableIfEnabled(DisableReason reason) {
@@ -100,13 +109,13 @@ public class ClientAutomationController {
     }
 
     public boolean isEnabled() {
-        return state != AutomationState.DISABLED;
+        return modEnabled;
     }
 
     public boolean isActivationItemSelected() {
         Minecraft minecraft = Minecraft.getMinecraft();
         EntityPlayerSP player = minecraft.player;
-        return isEnabled()
+        return modEnabled
                 && player != null
                 && activeBinding != null
                 && player.inventory.currentItem == activeBinding.hotbarSlot()
@@ -118,29 +127,36 @@ public class ClientAutomationController {
     }
 
     private void validateActiveSession() {
-        if (!isEnabled()) {
+        if (!modEnabled && state == AutomationState.DISABLED) {
             return;
         }
 
         Minecraft minecraft = Minecraft.getMinecraft();
         EntityPlayerSP player = minecraft.player;
         if (player == null || minecraft.world == null) {
-            disableIfEnabled(DisableReason.WORLD_UNLOADED);
-            return;
-        }
-
-        if (!isSupportedGameMode(minecraft)) {
-            disableIfEnabled(DisableReason.UNSUPPORTED_GAME_MODE);
+            disableMod(DisableReason.WORLD_UNLOADED);
             return;
         }
 
         if (player.isDead || player.getHealth() <= 0.0F) {
-            disableIfEnabled(DisableReason.PLAYER_DIED);
+            disableMod(DisableReason.PLAYER_DIED);
             return;
         }
 
         if (activeDimension != null && player.dimension != activeDimension.intValue()) {
-            disableIfEnabled(DisableReason.DIMENSION_CHANGED);
+            disableMod(DisableReason.DIMENSION_CHANGED);
+            return;
+        }
+
+        if (!isSupportedGameMode(minecraft)) {
+            disableMod(DisableReason.UNSUPPORTED_GAME_MODE);
+            return;
+        }
+
+        if (state == AutomationState.DISABLED) {
+            if (activeBinding == null || !activeBinding.isActivationItemInPossession(player)) {
+                disableMod(DisableReason.ACTIVATION_ITEM_LOST);
+            }
             return;
         }
 
@@ -150,31 +166,15 @@ public class ClientAutomationController {
         }
 
         if (isActivationItemSelected()) {
-            if (state == AutomationState.PAUSED) {
-                resumeLocalState();
-            }
             return;
         }
 
         if (state == AutomationState.ENABLED) {
-            applyLocalState(AutomationState.PAUSED, DisableReason.NONE, activeBinding);
+            applyLocalState(AutomationState.DISABLED, DisableReason.ACTIVATION_ITEM_LOST, null);
             return;
         }
 
-        tickGracePeriod();
-    }
-
-    private void tickGracePeriod() {
-        if (state != AutomationState.PAUSED) {
-            return;
-        }
-
-        if (graceTicksRemaining > 0) {
-            graceTicksRemaining--;
-        }
-        if (graceTicksRemaining <= 0) {
-            disableIfEnabled(DisableReason.GRACE_EXPIRED);
-        }
+        applyLocalState(AutomationState.DISABLED, DisableReason.ACTIVATION_ITEM_LOST, null);
     }
 
     private DisableReason getLocalEnableRejection() {
@@ -212,17 +212,18 @@ public class ClientAutomationController {
         return minecraft.player.inventory.currentItem;
     }
 
+    private boolean isTargetingEntity() {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        return minecraft.objectMouseOver != null
+                && minecraft.objectMouseOver.typeOfHit == net.minecraft.util.math.RayTraceResult.Type.ENTITY;
+    }
+
     private Integer getCurrentDimension() {
         Minecraft minecraft = Minecraft.getMinecraft();
         if (minecraft.player == null) {
             return null;
         }
         return Integer.valueOf(minecraft.player.dimension);
-    }
-
-    private int configuredGraceTicks() {
-        ConfigValues config = ModConfig.values();
-        return config.gracePeriodSeconds() * 20;
     }
 
     private ClientActivationBinding bindCurrentSelection(int selectedHotbarSlot) {
@@ -254,14 +255,16 @@ public class ClientAutomationController {
 
     @SubscribeEvent
     public void onClientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+        modEnabled = false;
         state = AutomationState.DISABLED;
         activeBinding = null;
         activeDimension = null;
-        graceTicksRemaining = 0;
     }
 
     @SubscribeEvent
     public void onClientDisconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
-        disableIfEnabled(DisableReason.WORLD_UNLOADED);
+        if (modEnabled || state != AutomationState.DISABLED) {
+            disableMod(DisableReason.WORLD_UNLOADED);
+        }
     }
 }

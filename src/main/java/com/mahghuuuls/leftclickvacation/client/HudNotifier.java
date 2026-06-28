@@ -16,6 +16,15 @@ public class HudNotifier {
     private int ticksRemaining;
     private boolean persistent;
 
+    public void showModEnabled() {
+        ConfigValues config = ModConfig.values();
+        if (!config.showEnabledMessage()) {
+            clear();
+            return;
+        }
+        showFixed("Auto click ready.", config.fixedHudDurationSeconds());
+    }
+
     public void show(AutomationState state, DisableReason reason) {
         ConfigValues config = ModConfig.values();
         if (state == AutomationState.ENABLED) {

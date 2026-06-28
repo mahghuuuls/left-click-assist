@@ -32,13 +32,13 @@ public final class ModConfig {
 
     public static final class Hud {
 
-        @Config.Comment("Show a HUD message when automation is enabled.")
+        @Config.Comment("Show a HUD message when the mod or auto click is enabled.")
         public boolean showEnabledMessage = true;
 
-        @Config.Comment("Show a HUD message when automation is disabled.")
+        @Config.Comment("Show a HUD message when the mod is disabled or auto click is turned off.")
         public boolean showDisabledMessage = true;
 
-        @Config.Comment("Show a HUD message while automation is paused.")
+        @Config.Comment("Show a HUD message while auto click is paused.")
         public boolean showPausedMessage = true;
 
         @Config.Comment("Duration in seconds for fixed enabled and disabled HUD messages.")
@@ -50,7 +50,7 @@ public final class ModConfig {
 
     public static final class Automation {
 
-        @Config.Comment("Seconds automation may remain paused after switching away from the activation item.")
+        @Config.Comment("Seconds auto click may remain paused after switching away from the activation item.")
         @Config.RangeInt(
                 min = ConfigSanitizer.MIN_GRACE_PERIOD_SECONDS,
                 max = ConfigSanitizer.MAX_GRACE_PERIOD_SECONDS)
