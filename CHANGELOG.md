@@ -15,9 +15,8 @@
 - Manual restart after returning to the armed item.
 - Entity-target safety so automation does not generate entity attacks.
 - Primary HUD component showing the armed item icon plus green `ON` or red `OFF` status.
-- Optional debug HUD messages, disabled by default.
 - Configurable HUD component position and scale.
-- Config sanitization for HUD position, scale, debug message duration, and grace-period compatibility values.
+- Config sanitization for HUD position, scale, and grace-period compatibility values.
 - Client-first multiplayer behavior that does not require server-side mod support.
 
 ### Compatibility
